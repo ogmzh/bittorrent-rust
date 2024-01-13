@@ -2,9 +2,18 @@ use std::env;
 
 #[allow(dead_code)]
 fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
-    if let Some((prefix, rest)) = encoded_value.split_once(':') {
-        if prefix.parse::<usize>().is_ok() {
-            return serde_json::Value::String(rest.to_string());
+    if let Some(n) = encoded_value
+        .strip_prefix('i')
+        .and_then(|rest| rest.split_once('e'))
+        .and_then(|(digits, _)| digits.parse::<i64>().ok())
+    {
+        return n.into();
+    } else if let Some((length, rest)) = encoded_value.split_once(':') {
+        if length.parse::<usize>().is_ok() {
+            if let Ok(length) = length.parse::<usize>() {
+                // slice the string by the length so we always respect the encoded length
+                return serde_json::Value::String(rest[..length].to_string());
+            }
         }
     }
     panic!("Unhandled encoded value: {}", encoded_value)

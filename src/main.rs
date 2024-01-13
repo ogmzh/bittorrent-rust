@@ -1,21 +1,46 @@
 use std::env;
 
-#[allow(dead_code)]
-fn decode_bencoded_value(encoded_value: &str) -> serde_json::Value {
-    if let Some(n) = encoded_value
-        .strip_prefix('i')
-        .and_then(|rest| rest.split_once('e'))
-        .and_then(|(digits, _)| digits.parse::<i64>().ok())
-    {
-        return n.into();
-    } else if let Some((length, rest)) = encoded_value.split_once(':') {
-        if length.parse::<usize>().is_ok() {
-            if let Ok(length) = length.parse::<usize>() {
-                // slice the string by the length so we always respect the encoded length
-                return serde_json::Value::String(rest[..length].to_string());
+// instead of parsing these strings manually and recursively (for lists), we could just call
+// but I'm doing it manually for some rust practice.
+// we return a tuple so we can always return the remainder of the string after recursive parsing
+fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
+    match encoded_value.chars().next() {
+        Some('i') => {
+            if let Some((n, rest)) = encoded_value
+                .split_at(1)
+                .1
+                .split_once('e') // integer encoded strings look like i25e
+                .and_then(|(digits, rest)| {
+                    let n = digits.parse::<i64>().ok()?;
+                    Some((n, rest))
+                })
+            {
+                return (n.into(), rest);
             }
         }
+        Some('l') => {
+            let mut values = Vec::new();
+            let mut remainder = encoded_value.split_at(1).1; // lists look like l5:helloi52ee
+            while !remainder.is_empty() && !remainder.starts_with('e') {
+                // e character is a terminator
+                let (value, rest) = decode_bencoded_value(remainder);
+                values.push(value);
+                remainder = rest;
+            }
+            // return the list with whatever is left after in the encoded string, as the list has been terminated in the while with 'e'
+            return (values.into(), &remainder[1..]);
+        }
+        Some('0'..='9') => {
+            if let Some((length, rest)) = encoded_value.split_once(':') {
+                // string encoded values look like 5:hello
+                if let Ok(length) = length.parse::<usize>() {
+                    return (rest[..length].into(), &rest[length..]);
+                }
+            }
+        }
+        _ => {}
     }
+
     panic!("Unhandled encoded value: {}", encoded_value)
 }
 
@@ -31,7 +56,7 @@ fn main() {
         // Uncomment this block to pass the first stage
         let encoded_value = &args[2];
         let decoded_value = decode_bencoded_value(encoded_value);
-        println!("{}", decoded_value);
+        println!("{}", decoded_value.0);
     } else {
         println!("unknown command: {}", args[1])
     }

@@ -1,9 +1,27 @@
-use std::{env, collections::HashMap};
+use anyhow::{Context, Result};
+use clap::{Parser, Subcommand};
+use serde_bencode::from_bytes;
+use std::{fs, path::PathBuf};
+use torrent::Torrent;
 
-// instead of parsing these strings manually and recursively (for lists), we could just call
-// but I'm doing it manually for some rust practice.
-// we return a tuple so we can always return the remainder of the string after recursive parsing
+mod torrent;
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand, Debug)]
+enum Command {
+    Decode { value: String },
+    Info { torrent: PathBuf },
+}
+
+#[allow(dead_code)] // for the actual invocation we will use the serde_bencode::from_str as it is safer and will work with non-utf8 strings
 fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
+    // we return a tuple so we can always return the remainder of the string after recursive parsing
     match encoded_value.chars().next() {
         Some('i') => {
             if let Some((n, rest)) = encoded_value
@@ -21,7 +39,8 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
         Some('l') => {
             let mut values = Vec::new();
             let mut remainder = encoded_value.split_at(1).1; // lists look like l5:helloi52ee
-            while !remainder.starts_with('e') {  // e character is the terminator
+            while !remainder.starts_with('e') {
+                // e character is the terminator
                 let (value, rest) = decode_bencoded_value(remainder);
                 values.push(value);
                 remainder = rest;
@@ -69,19 +88,18 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
 }
 
 // Usage: your_bittorrent.sh decode "<encoded_value>"
-fn main() {
-    let args: Vec<String> = env::args().collect();
-    let command = &args[1];
-
-    if command == "decode" {
-        // You can use print statements as follows for debugging, they'll be visible when running tests.
-        eprintln!("Logs from your program will appear here!");
-
-        // Uncomment this block to pass the first stage
-        let encoded_value = &args[2];
-        let decoded_value = decode_bencoded_value(encoded_value);
-        println!("{}", decoded_value.0);
-    } else {
-        println!("unknown command: {}", args[1])
+fn main() -> Result<()> {
+    let args = Args::parse();
+    match args.command {
+        Command::Decode { value } => {
+            let decoded_value = decode_bencoded_value(&value).0;
+            println!("{decoded_value}");
+        }
+        Command::Info { torrent } => {
+            let file = fs::read(torrent).context("CTX: Open torent file").unwrap();
+            let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
+            eprintln!("{torrent:?}")
+        }
     }
+    Ok(())
 }

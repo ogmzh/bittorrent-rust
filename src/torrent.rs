@@ -1,9 +1,9 @@
 use self::hashes::Hashes;
-use hex::encode;
-use sha1::{Sha1, Digest};
 use anyhow::Context;
+use hex::encode;
 use serde::{Deserialize, Serialize};
 use serde_bencode::to_bytes;
+use sha1::{Digest, Sha1};
 use std::fmt::{Display, Error as FmtError, Formatter};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -37,7 +37,16 @@ impl Display for Torrent {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         writeln!(f, "Tracker URL: {}", self.announce)?;
         writeln!(f, "Length: {}", self.info.length)?;
-        write!(f, "Info Hash: {}", self.info.info_hash())?;
+        writeln!(f, "Info Hash: {}", self.info.info_hash())?;
+        writeln!(f, "Piece Length: {}", self.info.piece_length)?;
+        writeln!(f, "Piece Hashes:")?;
+        for (index, hash) in self.info.pieces.0.iter().enumerate() {
+            if index < self.info.pieces.0.len() - 1 {
+                writeln!(f, "{}", encode(hash))?;
+            } else {
+                write!(f, "{}", encode(hash))?;
+            }
+        }
         Ok(())
     }
 }
@@ -48,7 +57,7 @@ mod hashes {
     use std::fmt;
 
     #[derive(Debug, Clone)]
-    pub struct Hashes(Vec<[u8; 20]>);
+    pub struct Hashes(pub Vec<[u8; 20]>); // we access this vec through hashes.0
     struct HashesVisitor;
 
     impl<'de> Visitor<'de> for HashesVisitor {

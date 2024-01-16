@@ -11,6 +11,7 @@ struct Info {
     #[serde(rename = "piece length")]
     _piece_length: usize,
     /// Each entry of `pieces` is the SHA1 hash of the piece at the corresponding index.
+    #[serde(rename = "pieces")]
     _pieces: Hashes, // they get deserialized using the HashesVisitor
 }
 

@@ -6,6 +6,7 @@ use self::hashes::Hashes;
 #[derive(Debug, Clone, Deserialize)]
 struct Info {
     length: usize,
+    #[serde(rename = "name")]
     _name: String,
     #[serde(rename = "piece length")]
     _piece_length: usize,

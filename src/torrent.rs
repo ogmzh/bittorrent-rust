@@ -1,18 +1,16 @@
 use serde::Deserialize; // also serialize
 use std::fmt::{Display, Error as FmtError, Formatter};
 
-use self::hashes::Hashes;
+// use self::hashes::Hashes;
 
 #[derive(Debug, Clone, Deserialize)]
 struct Info {
     length: usize,
-    #[serde(rename = "name")]
-    _name: String,
-    #[serde(rename = "piece length")]
-    _piece_length: usize,
-    /// Each entry of `pieces` is the SHA1 hash of the piece at the corresponding index.
-    #[serde(rename = "pieces")]
-    _pieces: Hashes, // they get deserialized using the HashesVisitor
+    // name: String,
+    // #[serde(rename = "piece length")]
+    // piece_length: usize,
+    // /// Each entry of `pieces` is the SHA1 hash of the piece at the corresponding index.
+    // pieces: Hashes, // they get deserialized using the HashesVisitor
 }
 
 #[derive(Debug, Clone, Deserialize)]

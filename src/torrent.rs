@@ -1,16 +1,30 @@
-use serde::Deserialize; // also serialize
+use self::hashes::Hashes;
+use hex::encode;
+use sha1::{Sha1, Digest};
+use anyhow::Context;
+use serde::{Deserialize, Serialize};
+use serde_bencode::to_bytes;
 use std::fmt::{Display, Error as FmtError, Formatter};
 
-// use self::hashes::Hashes;
-
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 struct Info {
     length: usize,
-    // name: String,
-    // #[serde(rename = "piece length")]
-    // piece_length: usize,
-    // /// Each entry of `pieces` is the SHA1 hash of the piece at the corresponding index.
-    // pieces: Hashes, // they get deserialized using the HashesVisitor
+    name: String,
+    #[serde(rename = "piece length")]
+    piece_length: usize,
+    /// Each entry of `pieces` is the SHA1 hash of the piece at the corresponding index.
+    pieces: Hashes, // they get deserialized using the HashesVisitor
+}
+
+impl Info {
+    pub fn info_hash(&self) -> String {
+        let info_encoded = to_bytes(&self)
+            .context("CTX: Re-encoding info back to bytes")
+            .unwrap();
+        let mut hasher = <Sha1 as Digest>::new();
+        hasher.update(&info_encoded);
+        encode(hasher.finalize())
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -22,7 +36,8 @@ pub struct Torrent {
 impl Display for Torrent {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         writeln!(f, "Tracker URL: {}", self.announce)?;
-        write!(f, "Length: {}", self.info.length)?;
+        writeln!(f, "Length: {}", self.info.length)?;
+        write!(f, "Info Hash: {}", self.info.info_hash())?;
         Ok(())
     }
 }
@@ -75,7 +90,7 @@ mod hashes {
         where
             S: Serializer,
         {
-            let single_slice = self.0.concat(); // concat flattens a vec<[u8]> to a vec<u8>
+            let single_slice = self.0.concat(); // iter.flatten.collect: concat flattens a vec<[u8]> to a vec<u8>
             serializer.serialize_bytes(&single_slice)
         }
     }

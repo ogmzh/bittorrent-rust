@@ -6,17 +6,17 @@ use self::hashes::Hashes;
 #[derive(Debug, Clone, Deserialize)]
 struct Info {
     length: usize,
-    name: String,
+    _name: String,
     #[serde(rename = "piece length")]
-    piece_length: usize,
+    _piece_length: usize,
     /// Each entry of `pieces` is the SHA1 hash of the piece at the corresponding index.
-    pieces: Hashes, // they get deserialized using the HashesVisitor
+    _pieces: Hashes, // they get deserialized using the HashesVisitor
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Torrent {
     pub announce: String,
-    pub info: Info,
+    info: Info,
 }
 
 impl Display for Torrent {

@@ -22,7 +22,7 @@ pub struct Torrent {
 impl Display for Torrent {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         writeln!(f, "Tracker URL: {}", self.announce)?;
-        writeln!(f, "Length: {}", self.info.length)?;
+        write!(f, "Length: {}", self.info.length)?;
         Ok(())
     }
 }

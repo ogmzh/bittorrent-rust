@@ -98,7 +98,7 @@ fn main() -> Result<()> {
         Command::Info { torrent } => {
             let file = fs::read(torrent).context("CTX: Open torent file").unwrap();
             let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
-            eprintln!("{torrent:?}")
+            println!("{torrent}")
         }
     }
     Ok(())

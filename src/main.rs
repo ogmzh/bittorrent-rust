@@ -2,14 +2,13 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use hex::encode;
 use serde_bencode::from_bytes;
-use std::mem::size_of;
 use std::net::SocketAddrV4;
 use std::str::FromStr;
 use std::{fs, path::PathBuf};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-use bittorrent_starter_rust::peer::Handshake;
+use bittorrent_starter_rust::peer::{Handshake, HANDSHAKE_BYTE_BUFFER_SIZE, HANDSHAKE_PEER_ID_BYTE_INDEX_START};
 use bittorrent_starter_rust::torrent::Torrent;
 use bittorrent_starter_rust::tracker::TrackerRequest;
 
@@ -166,14 +165,14 @@ async fn main() -> Result<()> {
             peer.write_all(&handshake.as_bytes())
                 .await
                 .context("CTX: write bytes")?;
-            let mut response_buffer = [0u8; 68]; // byte size of the handshake that we get back
+            let mut response_buffer = [0u8; HANDSHAKE_BYTE_BUFFER_SIZE as usize]; // byte size of the handshake that we get back
             peer.read_exact(&mut response_buffer)
                 .await
                 .context("CTX: Read handshake response buffer")?;
             eprintln!("response buffer {response_buffer:?}");
             println!(
                 "Peer ID: {}",
-                encode(&response_buffer[48..])
+                encode(&response_buffer[(HANDSHAKE_PEER_ID_BYTE_INDEX_START as usize)..])
             )
         }
     }

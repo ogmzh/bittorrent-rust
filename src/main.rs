@@ -1,10 +1,17 @@
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
+use hex::encode;
 use serde_bencode::from_bytes;
+use std::mem::size_of;
+use std::net::SocketAddrV4;
+use std::str::FromStr;
 use std::{fs, path::PathBuf};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 
+use bittorrent_starter_rust::peer::Handshake;
 use bittorrent_starter_rust::torrent::Torrent;
-use bittorrent_starter_rust::tracker::{TrackerRequest, TrackerResponse};
+use bittorrent_starter_rust::tracker::TrackerRequest;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -18,6 +25,7 @@ enum Command {
     Decode { value: String },
     Info { torrent: PathBuf },
     Peers { torrent: PathBuf },
+    Handshake { torrent: PathBuf, peer: String },
 }
 
 // for the actual invocation we will use the serde_bencode::from_str as it is safer and will work with non-utf8 strings
@@ -88,7 +96,16 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
     panic!("Unhandled encoded value: {}", encoded_value)
 }
 
-// Usage: your_bittorrent.sh decode "<encoded_value>"
+fn get_tracker_request(length: usize) -> TrackerRequest {
+    TrackerRequest {
+        peer_id: String::from("00112233445566778899"),
+        port: 6881,
+        uploaded: 0,
+        downloaded: 0,
+        left: length,
+        compact: 1,
+    }
+}
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -104,37 +121,66 @@ async fn main() -> Result<()> {
             println!("{torrent}")
         }
         Command::Peers { torrent } => {
-            let file = fs::read(torrent).context("CTX: Open torent file")?;
+            let file: Vec<u8> = fs::read(torrent).context("CTX: Open torent file")?;
             let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
-            let info_hash = torrent.info.info_hash_urlencoded();
-            let request = TrackerRequest {
-                peer_id: String::from("00112233445566778899"),
-                port: 6881,
-                uploaded: 0,
-                downloaded: 0,
-                left: torrent.info.length,
-                compact: 1,
-            };
-
-            let params = serde_urlencoded::to_string(&request)
-                .context("CTX: url encoding request params")?;
-            let tracker_url = format!("{}?{}&info_hash={}", torrent.announce, params, info_hash);
-            let response = reqwest::get(tracker_url)
+            let request = get_tracker_request(torrent.info.length);
+            let peers = request
+                .discover_peers(&torrent)
                 .await
-                .context("CTX: reqwest::get tracker_url")?;
-            let response_bytes = response
-                .bytes()
-                .await
-                .context("CTX: tracker response to bytes")?;
-            let response: TrackerResponse = from_bytes(&response_bytes)
-                .context("CTX: byte to tracker response deserialization")?;
-            eprintln!("{:?}", response);
-            response.peers.0.iter().for_each(|peer| println!("{peer}"));
+                .context("CTX: discover peers")?;
 
-            // let tracker_url = Url::from(&torrent.announce);
-            // tracker_url.quer
+            peers.addresses.iter().for_each(|peer| println!("{peer}"));
+        }
+        Command::Handshake {
+            torrent: torrent_path,
+            peer,
+        } => {
+            let file = fs::read(&torrent_path).context("CTX: Open torrent file")?;
+            let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
+
+            // check if the peer provided is actually in the list of peers
+            let request = get_tracker_request(torrent.info.length);
+            let peers = request
+                .discover_peers(&torrent)
+                .await
+                .context("CTX: discover peers")?;
+
+            if !peers.addresses.iter().any(|&item| {
+                item == SocketAddrV4::from_str(&peer)
+                    .expect("Peer address must be a valid IPv4 address")
+            }) {
+                panic!(
+                    "Torrent file {} does not contain peer address {}",
+                    torrent_path.to_string_lossy(),
+                    peer
+                );
+            }
+
+            let peer_addr = peer
+                .parse::<SocketAddrV4>()
+                .context("CTX: parse peer address")?;
+            let mut peer = TcpStream::connect(peer_addr)
+                .await
+                .context("CTX: TCP Stream to peer")?;
+            let handshake = Handshake::new(torrent.info.info_hash_bytes());
+            peer.write_all(&handshake.as_bytes())
+                .await
+                .context("CTX: write bytes")?;
+            let mut response_buffer = [0u8; size_of::<Handshake>()]; // byte size of the handshake that we get back
+            peer.read_exact(&mut response_buffer)
+                .await
+                .context("CTX: Read handshake response buffer")?;
+            eprintln!("response buffer {response_buffer:?}");
+            println!(
+                "Peer ID: {}",
+                encode(&response_buffer[response_buffer.len() - 20..])
+            )
         }
     }
 
     Ok(())
 }
+
+// let n = if let Some(x) = number { x * 2 } else { 0 };
+
+// let s = if true { "first" } else { "second" }.to_string();

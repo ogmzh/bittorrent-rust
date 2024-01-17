@@ -173,7 +173,7 @@ async fn main() -> Result<()> {
             eprintln!("response buffer {response_buffer:?}");
             println!(
                 "Peer ID: {}",
-                encode(&response_buffer[response_buffer.len() - 20..])
+                encode(&response_buffer[48..])
             )
         }
     }

@@ -68,7 +68,7 @@ impl TrackerRequest {
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
 pub struct TrackerResponse {
-    interval: usize,
+    // interval: usize,
     pub peers: Peers,
 }
 

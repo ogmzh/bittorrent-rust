@@ -1,6 +1,9 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use serde_bencode::from_bytes;
 
 use self::peers::Peers;
+use crate::torrent::Torrent;
 
 // info_hash: the info hash of the torrent
 // 20 bytes long, will need to be URL encoded
@@ -31,6 +34,29 @@ pub struct TrackerRequest {
     pub compact: u8,
 }
 
+impl TrackerRequest {
+    pub async fn discover_peers(&self, torrent: &Torrent) -> Result<Peers> {
+        let params =
+            serde_urlencoded::to_string(self).context("CTX: url encoding request params")?;
+        let tracker_url = format!(
+            "{}?{}&info_hash={}",
+            torrent.announce,
+            params,
+            torrent.info.info_hash_urlencoded()
+        );
+        let response = reqwest::get(tracker_url)
+            .await
+            .context("CTX: reqwest::get tracker_url")?;
+        let response_bytes = response
+            .bytes()
+            .await
+            .context("CTX: tracker response to bytes")?;
+        let response: TrackerResponse =
+            from_bytes(&response_bytes).context("CTX: byte to tracker response deserialization")?;
+        Ok(response.peers)
+    }
+}
+
 // The tracker's response will be a bencoded dictionary with two keys:
 
 // interval:
@@ -53,7 +79,9 @@ mod peers {
     use std::net::{Ipv4Addr, SocketAddrV4};
 
     #[derive(Debug, Clone)]
-    pub struct Peers(pub Vec<SocketAddrV4>); // v4 and not v6 because "The first 4 bytes are the peer's IP address and the last 2 bytes are the peer's port number"
+    pub struct Peers {
+        pub addresses: Vec<SocketAddrV4>,
+    } // v4 and not v6 because "The first 4 bytes are the peer's IP address and the last 2 bytes are the peer's port number"
     struct PeersVisitor;
 
     impl<'de> Visitor<'de> for PeersVisitor {
@@ -80,7 +108,7 @@ mod peers {
                     )
                 })
                 .collect();
-            Ok(Peers(addresses))
+            Ok(Peers { addresses })
         }
     }
 

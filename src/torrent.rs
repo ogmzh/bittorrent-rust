@@ -1,5 +1,5 @@
 use self::hashes::Hashes;
-use anyhow::Context;
+use anyhow::Result;
 use hex::encode;
 use serde::{Deserialize, Serialize};
 use serde_bencode::to_bytes;
@@ -7,8 +7,8 @@ use sha1::{Digest, Sha1};
 use std::fmt::{Display, Error as FmtError, Formatter};
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
-struct Info {
-    length: usize,
+pub struct Info {
+    pub length: usize,
     name: String,
     #[serde(rename = "piece length")]
     piece_length: usize,
@@ -17,27 +17,45 @@ struct Info {
 }
 
 impl Info {
-    pub fn info_hash(&self) -> String {
-        let info_encoded = to_bytes(&self)
-            .context("CTX: Re-encoding info back to bytes")
-            .unwrap();
+    #[allow(clippy::unnecessary_fallible_conversions)]
+    pub fn info_hash_bytes(&self) -> [u8; 20] {
+        let info_encoded = to_bytes(&self).expect("Re-encoding info back to bytes");
         let mut hasher = <Sha1 as Digest>::new();
         hasher.update(&info_encoded);
-        encode(hasher.finalize())
+        // encode(hasher.finalize()) -- this was used when the output of this fn was a String
+        hasher
+            .finalize()
+            .try_into()
+            .expect("Hasher finalize failed")
+    }
+
+    pub fn info_hash_str(&self) -> String {
+        let hash_bytes = self.info_hash_bytes();
+        encode(hash_bytes) // 40 bytes hex representation
+    }
+
+    // serde urlencoded does not do this properly
+    pub fn info_hash_urlencoded(&self) -> String {
+        let mut encoded = String::with_capacity(3 * self.info_hash_bytes().len());
+        for &byte in &self.info_hash_bytes() {
+            encoded.push('%');
+            encoded.push_str(&encode([byte]));
+        }
+        encoded
     }
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Torrent {
     pub announce: String,
-    info: Info,
+    pub info: Info,
 }
 
 impl Display for Torrent {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), FmtError> {
         writeln!(f, "Tracker URL: {}", self.announce)?;
         writeln!(f, "Length: {}", self.info.length)?;
-        writeln!(f, "Info Hash: {}", self.info.info_hash())?;
+        writeln!(f, "Info Hash: {}", self.info.info_hash_str())?;
         writeln!(f, "Piece Length: {}", self.info.piece_length)?;
         writeln!(f, "Piece Hashes:")?;
         for (index, hash) in self.info.pieces.0.iter().enumerate() {

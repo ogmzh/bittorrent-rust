@@ -1,5 +1,13 @@
-// #[repr(C)]
-// #[repr(packed)]
+// The handshake is a message consisting of the following parts as described in the peer protocol:
+
+// length of the protocol string (BitTorrent protocol) which is 19 (1 byte)
+// the string BitTorrent protocol (19 bytes)
+// eight reserved bytes, which are all set to zero (8 bytes)
+// sha1 infohash (20 bytes) (NOT the hexadecimal representation, which is 40 bytes long)
+// peer id (20 bytes) (you can use 00112233445566778899 for this challenge)
+pub const HANDSHAKE_PEER_ID_BYTE_INDEX_START: u8 = 48;
+pub const HANDSHAKE_BYTE_BUFFER_SIZE: u8 = 68;
+
 pub struct Handshake {
     pub length: u8,
     pub protocol: &'static [u8; 19], // static byte slice (can also write it as &'static [u8])

@@ -166,7 +166,7 @@ async fn main() -> Result<()> {
             peer.write_all(&handshake.as_bytes())
                 .await
                 .context("CTX: write bytes")?;
-            let mut response_buffer = [0u8; size_of::<Handshake>()]; // byte size of the handshake that we get back
+            let mut response_buffer = [0u8; 68]; // byte size of the handshake that we get back
             peer.read_exact(&mut response_buffer)
                 .await
                 .context("CTX: Read handshake response buffer")?;

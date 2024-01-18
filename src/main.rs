@@ -41,6 +41,11 @@ enum Command {
         torrent: PathBuf,
         piece: u32,
     },
+    Download {
+        #[arg(short)]
+        output: PathBuf,
+        torrent: PathBuf,
+    },
 }
 
 // for the actual invocation we will use the serde_bencode::from_str as it is safer and will work with non-utf8 strings
@@ -186,8 +191,8 @@ async fn main() -> Result<()> {
         } => {
             let file = fs::read(&torrent_path).context("CTX: Open torrent file")?;
             let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
-
-            // check if the peer provided is actually in the list of peers
+            println!("{torrent:?}");
+            println!("{:?}", torrent.info.pieces.0.len());
             let request = TrackerRequest::default(torrent.info.length);
             let peers = request
                 .discover_peers(&torrent)
@@ -223,6 +228,50 @@ async fn main() -> Result<()> {
             }
 
             fs::write(output, &piece_data)?;
+        }
+        Command::Download {
+            output,
+            torrent: torrent_path,
+        } => {
+            let file = fs::read(&torrent_path).context("CTX: Open torrent file")?;
+            let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
+
+            let request = TrackerRequest::default(torrent.info.length);
+            let peers = request
+                .discover_peers(&torrent)
+                .await
+                .context("CTX: discover peers")?;
+
+            let mut file_data: Vec<u8> = Vec::new();
+            for piece in 0..torrent.info.pieces.0.len() {
+                let mut stream = Stream::connect(&peers.addresses[0]).await?;
+                let handshake = Handshake::new(torrent.info.info_hash_bytes());
+                stream.handshake(handshake).await?;
+                stream.bitfield().await.context("CTX: bitfield")?;
+                stream.interested().await.context("CT: interested")?;
+                stream
+                    .wait_unchoke()
+                    .await
+                    .context("CTX: await for unchoke")?;
+
+                let piece_data: Vec<u8> = stream
+                    .get_piece_data(piece as u32, &torrent)
+                    .await
+                    .context("CTX: Get piece data failed")?;
+                let mut hasher = <Sha1 as Digest>::new();
+                hasher.update(&piece_data);
+                #[allow(clippy::unnecessary_fallible_conversions)]
+                let piece_hash: [u8; 20] = hasher
+                    .finalize()
+                    .try_into()
+                    .expect("Hasher finalize failed");
+                let torrent_hash = &torrent.info.pieces.0[piece];
+                if &piece_hash != torrent_hash {
+                    panic!("Hashes for piece {} do NOT match!", piece);
+                }
+                file_data.extend(piece_data);
+            }
+            fs::write(output, &file_data)?;
         }
     }
 

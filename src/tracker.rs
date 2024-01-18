@@ -35,6 +35,17 @@ pub struct TrackerRequest {
 }
 
 impl TrackerRequest {
+    pub fn default(length: usize) -> Self {
+        Self {
+            peer_id: String::from("00112233445566778899"),
+            port: 6881,
+            uploaded: 0,
+            downloaded: 0,
+            left: length,
+            compact: 1,
+        }
+    }
+
     pub async fn discover_peers(&self, torrent: &Torrent) -> Result<Peers> {
         let params =
             serde_urlencoded::to_string(self).context("CTX: url encoding request params")?;
@@ -82,6 +93,7 @@ mod peers {
     pub struct Peers {
         pub addresses: Vec<SocketAddrV4>,
     } // v4 and not v6 because "The first 4 bytes are the peer's IP address and the last 2 bytes are the peer's port number"
+
     struct PeersVisitor;
 
     impl<'de> Visitor<'de> for PeersVisitor {
@@ -120,12 +132,4 @@ mod peers {
             deserializer.deserialize_bytes(PeersVisitor)
         }
     }
-
-    // impl Serialize for Peers {
-    //     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    //         where
-    //             S: Serializer {
-    //         let mut single_slice =
-    //     }
-    // }
 }

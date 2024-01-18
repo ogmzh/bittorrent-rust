@@ -77,9 +77,19 @@ impl Stream {
         };
 
         while remaining_bytes > 0 {
+            eprintln!(
+                "1: {}, {}, {}, {}, {}, {}",
+                remaining_bytes,
+                piece,
+                block_index,
+                block_size,
+                torrent.info.pieces.0.len(),
+                torrent.info.piece_length,
+            );
             if remaining_bytes < block_size {
                 block_size = remaining_bytes;
             }
+            eprintln!("send request piece {}, {}, {}", piece, block_index, block_size);
             self.send_request_piece(piece, block_index, block_size)
                 .await?;
             let request_buf = self

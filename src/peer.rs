@@ -77,19 +77,10 @@ impl Stream {
         };
 
         while remaining_bytes > 0 {
-            eprintln!(
-                "1: {}, {}, {}, {}, {}, {}",
-                remaining_bytes,
-                piece,
-                block_index,
-                block_size,
-                torrent.info.pieces.0.len(),
-                torrent.info.piece_length,
-            );
+
             if remaining_bytes < block_size {
                 block_size = remaining_bytes;
             }
-            eprintln!("send request piece {}, {}, {}", piece, block_index, block_size);
             self.send_request_piece(piece, block_index, block_size)
                 .await?;
             let request_buf = self
@@ -104,7 +95,7 @@ impl Stream {
             let data_block = request_buf[9..].to_vec();
             data.extend(data_block);
             remaining_bytes -= block_size;
-            block_index += 1;
+            block_index += block_size;
         }
         Ok(data)
     }
@@ -138,7 +129,7 @@ impl Stream {
         if request_buf[0] != MessageType::Piece.id() {
             panic!("expected request piece");
         }
-        Ok(request_buf.to_vec())
+        Ok(request_buf)
     }
 
     async fn get_message_length(&mut self) -> Result<u32> {
@@ -221,6 +212,7 @@ pub mod handshake {
 }
 
 pub mod message {
+    #[derive(Debug)]
     pub enum MessageType {
         Choke,
         Unchoke,
@@ -288,5 +280,4 @@ pub mod message {
             }
         }
     }
-
 }

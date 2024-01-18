@@ -3,6 +3,7 @@ use bittorrent_starter_rust::peer::Stream;
 use clap::{Parser, Subcommand};
 use hex::encode;
 use serde_bencode::from_bytes;
+use sha1::{Digest, Sha1};
 use std::net::SocketAddrV4;
 use std::str::FromStr;
 use std::{fs, path::PathBuf};
@@ -208,12 +209,20 @@ async fn main() -> Result<()> {
                 .get_piece_data(piece, &torrent)
                 .await
                 .context("CTX: Get piece data failed")?;
-            eprintln!(
-                "done! writing byte size: {} to {}",
-                piece_data.len(),
-                output.to_string_lossy()
-            );
-            fs::write(output, piece_data)?;
+
+            let mut hasher = <Sha1 as Digest>::new();
+            hasher.update(&piece_data);
+            #[allow(clippy::unnecessary_fallible_conversions)]
+            let piece_hash: [u8; 20] = hasher
+                .finalize()
+                .try_into()
+                .expect("Hasher finalize failed");
+            let torrent_hash = &torrent.info.pieces.0[piece as usize];
+            if &piece_hash != torrent_hash {
+                panic!("Hashes do NOT match!");
+            }
+
+            fs::write(output, &piece_data)?;
         }
     }
 

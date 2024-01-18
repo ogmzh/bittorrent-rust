@@ -9,11 +9,11 @@ use std::fmt::{Display, Error as FmtError, Formatter};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Info {
     pub length: usize,
-    name: String,
+    pub name: String,
     #[serde(rename = "piece length")]
-    piece_length: usize,
+    pub piece_length: usize,
     /// Each entry of `pieces` is the SHA1 hash of the piece at the corresponding index.
-    pieces: Hashes, // they get deserialized using the HashesVisitor
+    pub pieces: Hashes, // they get deserialized using the HashesVisitor
 }
 
 impl Info {

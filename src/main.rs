@@ -1,14 +1,13 @@
 use anyhow::{Context, Result};
+use bittorrent_starter_rust::peer::Stream;
 use clap::{Parser, Subcommand};
 use hex::encode;
 use serde_bencode::from_bytes;
 use std::net::SocketAddrV4;
 use std::str::FromStr;
 use std::{fs, path::PathBuf};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 
-use bittorrent_starter_rust::peer::{Handshake, HANDSHAKE_BYTE_BUFFER_SIZE, HANDSHAKE_PEER_ID_BYTE_INDEX_START};
+use bittorrent_starter_rust::peer::handshake::{Handshake, HANDSHAKE_PEER_ID_BYTE_INDEX_START};
 use bittorrent_starter_rust::torrent::Torrent;
 use bittorrent_starter_rust::tracker::TrackerRequest;
 
@@ -21,10 +20,26 @@ struct Args {
 
 #[derive(Subcommand, Debug)]
 enum Command {
-    Decode { value: String },
-    Info { torrent: PathBuf },
-    Peers { torrent: PathBuf },
-    Handshake { torrent: PathBuf, peer: String },
+    Decode {
+        value: String,
+    },
+    Info {
+        torrent: PathBuf,
+    },
+    Peers {
+        torrent: PathBuf,
+    },
+    Handshake {
+        torrent: PathBuf,
+        peer: String,
+    },
+    #[clap(name = "download_piece")]
+    DownloadPiece {
+        #[arg(short)]
+        output: PathBuf,
+        torrent: PathBuf,
+        piece: u32,
+    },
 }
 
 // for the actual invocation we will use the serde_bencode::from_str as it is safer and will work with non-utf8 strings
@@ -95,17 +110,6 @@ fn decode_bencoded_value(encoded_value: &str) -> (serde_json::Value, &str) {
     panic!("Unhandled encoded value: {}", encoded_value)
 }
 
-fn get_tracker_request(length: usize) -> TrackerRequest {
-    TrackerRequest {
-        peer_id: String::from("00112233445566778899"),
-        port: 6881,
-        uploaded: 0,
-        downloaded: 0,
-        left: length,
-        compact: 1,
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -115,14 +119,14 @@ async fn main() -> Result<()> {
             println!("{decoded_value}");
         }
         Command::Info { torrent } => {
-            let file = fs::read(torrent).context("CTX: Open torent file")?;
+            let file = fs::read(torrent).context("CTX: Open torrent file")?;
             let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
             println!("{torrent}")
         }
         Command::Peers { torrent } => {
-            let file: Vec<u8> = fs::read(torrent).context("CTX: Open torent file")?;
+            let file: Vec<u8> = fs::read(torrent).context("CTX: Open torrent file")?;
             let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
-            let request = get_tracker_request(torrent.info.length);
+            let request = TrackerRequest::default(torrent.info.length);
             let peers = request
                 .discover_peers(&torrent)
                 .await
@@ -138,7 +142,7 @@ async fn main() -> Result<()> {
             let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
 
             // check if the peer provided is actually in the list of peers
-            let request = get_tracker_request(torrent.info.length);
+            let request = TrackerRequest::default(torrent.info.length);
             let peers = request
                 .discover_peers(&torrent)
                 .await
@@ -154,32 +158,64 @@ async fn main() -> Result<()> {
                     peer
                 );
             }
-
             let peer_addr = peer
                 .parse::<SocketAddrV4>()
                 .context("CTX: parse peer address")?;
-            let mut peer = TcpStream::connect(peer_addr)
-                .await
-                .context("CTX: TCP Stream to peer")?;
             let handshake = Handshake::new(torrent.info.info_hash_bytes());
-            peer.write_all(&handshake.as_bytes())
+            let mut stream = Stream::connect(&peer_addr)
                 .await
-                .context("CTX: write bytes")?;
-            let mut response_buffer = [0u8; HANDSHAKE_BYTE_BUFFER_SIZE as usize]; // byte size of the handshake that we get back
-            peer.read_exact(&mut response_buffer)
+                .context("CTX: Init TCP stream for handshake failed")?;
+            let handshake_response = stream
+                .handshake(handshake)
                 .await
-                .context("CTX: Read handshake response buffer")?;
-            eprintln!("response buffer {response_buffer:?}");
-            println!(
-                "Peer ID: {}",
-                encode(&response_buffer[(HANDSHAKE_PEER_ID_BYTE_INDEX_START as usize)..])
-            )
+                .context("CTX: Handshake failed");
+
+            match handshake_response {
+                Ok(buffer) => println!(
+                    "Peer ID: {}",
+                    encode(&buffer[HANDSHAKE_PEER_ID_BYTE_INDEX_START..])
+                ),
+                Err(e) => panic!("Could not complete handshake! {}", e),
+            }
+        }
+        Command::DownloadPiece {
+            output,
+            torrent: torrent_path,
+            piece,
+        } => {
+            let file = fs::read(&torrent_path).context("CTX: Open torrent file")?;
+            let torrent: Torrent = from_bytes(&file).context("CTX: torrent file to bytes")?;
+
+            // check if the peer provided is actually in the list of peers
+            let request = TrackerRequest::default(torrent.info.length);
+            let peers = request
+                .discover_peers(&torrent)
+                .await
+                .context("CTX: discover peers")?;
+
+            let mut stream = Stream::connect(&peers.addresses[0]).await?;
+
+            let handshake = Handshake::new(torrent.info.info_hash_bytes());
+            stream.handshake(handshake).await?;
+            stream.bitfield().await.context("CTX: bitfield")?;
+            stream.interested().await.context("CT: interested")?;
+            stream
+                .wait_unchoke()
+                .await
+                .context("CTX: await for unchoke")?;
+
+            let piece_data: Vec<u8> = stream
+                .get_piece_data(piece, &torrent)
+                .await
+                .context("CTX: Get piece data failed")?;
+            eprintln!(
+                "done! writing byte size: {} to {}",
+                piece_data.len(),
+                output.to_string_lossy()
+            );
+            fs::write(output, piece_data)?;
         }
     }
 
     Ok(())
 }
-
-// let n = if let Some(x) = number { x * 2 } else { 0 };
-
-// let s = if true { "first" } else { "second" }.to_string();
